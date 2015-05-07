@@ -268,7 +268,7 @@ private[sql] case class InsertIntoParquetTable(
     val job = new Job(sqlContext.sparkContext.hadoopConfiguration)
 
     val writeSupport =
-      if (child.output.map(_.dataType).forall(_.isPrimitive)) {
+      if (child.output.map(_.dataType).forall(ParquetTypesConverter.isPrimitiveType)) {
         log.debug("Initializing MutableRowWriteSupport")
         classOf[org.apache.spark.sql.parquet.MutableRowWriteSupport]
       } else {
@@ -379,10 +379,9 @@ private[sql] case class InsertIntoParquetTable(
  */
 private[parquet] class AppendingParquetOutputFormat(offset: Int)
   extends parquet.hadoop.ParquetOutputFormat[Row] {
-  var committer: OutputCommitter = null
-
   // override to accept existing directories as valid output directory
   override def checkOutputSpecs(job: JobContext): Unit = {}
+  var committer: OutputCommitter = null
 
   // override to choose output filename so not overwrite existing ones
   override def getDefaultWorkFile(context: TaskAttemptContext, extension: String): Path = {

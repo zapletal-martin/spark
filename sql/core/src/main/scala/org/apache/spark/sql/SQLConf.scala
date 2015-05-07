@@ -30,6 +30,7 @@ private[spark] object SQLConf {
   val DEFAULT_SIZE_IN_BYTES = "spark.sql.defaultSizeInBytes"
   val SHUFFLE_PARTITIONS = "spark.sql.shuffle.partitions"
   val CODEGEN_ENABLED = "spark.sql.codegen"
+  val UNSAFE_ENABLED = "spark.sql.unsafe.enabled"
   val DIALECT = "spark.sql.dialect"
 
   val PARQUET_BINARY_AS_STRING = "spark.sql.parquet.binaryAsString"
@@ -47,9 +48,12 @@ private[spark] object SQLConf {
   // Options that control which operators can be chosen by the query planner.  These should be
   // considered hints and may be ignored by future versions of Spark SQL.
   val EXTERNAL_SORT = "spark.sql.planner.externalSort"
+  val SORTMERGE_JOIN = "spark.sql.planner.sortMergeJoin"
 
   // This is only used for the thriftserver
   val THRIFTSERVER_POOL = "spark.sql.thriftserver.scheduler.pool"
+  val THRIFTSERVER_UI_STATEMENT_LIMIT = "spark.sql.thriftserver.ui.retainedStatements"
+  val THRIFTSERVER_UI_SESSION_LIMIT = "spark.sql.thriftserver.ui.retainedSessions"
 
   // This is used to set the default data source
   val DEFAULT_DATA_SOURCE_NAME = "spark.sql.sources.default"
@@ -62,6 +66,14 @@ private[spark] object SQLConf {
   // Whether to perform eager analysis when constructing a dataframe.
   // Set to false when debugging requires the ability to look at invalid query plans.
   val DATAFRAME_EAGER_ANALYSIS = "spark.sql.eagerAnalysis"
+
+  // Whether to automatically resolve ambiguity in join conditions for self-joins.
+  // See SPARK-6231.
+  val DATAFRAME_SELF_JOIN_AUTO_RESOLVE_AMBIGUITY = "spark.sql.selfJoinAutoResolveAmbiguity"
+
+  val USE_SQL_SERIALIZER2 = "spark.sql.useSerializer2"
+
+  val USE_JACKSON_STREAMING_API = "spark.sql.json.useJacksonStreamingAPI"
 
   object Deprecated {
     val MAPRED_REDUCE_TASKS = "mapred.reduce.tasks"
@@ -129,6 +141,13 @@ private[sql] class SQLConf extends Serializable {
   private[spark] def externalSortEnabled: Boolean = getConf(EXTERNAL_SORT, "false").toBoolean
 
   /**
+   * Sort merge join would sort the two side of join first, and then iterate both sides together
+   * only once to get all matches. Using sort merge join can save a lot of memory usage compared
+   * to HashJoin.
+   */
+  private[spark] def sortMergeJoinEnabled: Boolean = getConf(SORTMERGE_JOIN, "false").toBoolean
+
+  /**
    * When set to true, Spark SQL will use the Scala compiler at runtime to generate custom bytecode
    * that evaluates expressions found in queries.  In general this custom code runs much faster
    * than interpreted evaluation, but there are significant start-up costs due to compilation.
@@ -138,6 +157,22 @@ private[sql] class SQLConf extends Serializable {
    * Defaults to false as this feature is currently experimental.
    */
   private[spark] def codegenEnabled: Boolean = getConf(CODEGEN_ENABLED, "false").toBoolean
+
+  /**
+   * When set to true, Spark SQL will use managed memory for certain operations.  This option only
+   * takes effect if codegen is enabled.
+   *
+   * Defaults to false as this feature is currently experimental.
+   */
+  private[spark] def unsafeEnabled: Boolean = getConf(UNSAFE_ENABLED, "false").toBoolean
+
+  private[spark] def useSqlSerializer2: Boolean = getConf(USE_SQL_SERIALIZER2, "true").toBoolean
+
+  /**
+   * Selects between the new (true) and old (false) JSON handlers, to be removed in Spark 1.5.0
+   */
+  private[spark] def useJacksonStreamingAPI: Boolean =
+    getConf(USE_JACKSON_STREAMING_API, "true").toBoolean
 
   /**
    * Upper bound on the sizes (in bytes) of the tables qualified for the auto conversion to
@@ -196,6 +231,9 @@ private[sql] class SQLConf extends Serializable {
   private[spark] def dataFrameEagerAnalysis: Boolean =
     getConf(DATAFRAME_EAGER_ANALYSIS, "true").toBoolean
 
+  private[spark] def dataFrameSelfJoinAutoResolveAmbiguity: Boolean =
+    getConf(DATAFRAME_SELF_JOIN_AUTO_RESOLVE_AMBIGUITY, "true").toBoolean
+  
   /** ********************** SQLConf functionality methods ************ */
 
   /** Set Spark SQL configuration properties. */

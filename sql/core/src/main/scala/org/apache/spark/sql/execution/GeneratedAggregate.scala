@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.TaskContext
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.trees._
@@ -40,6 +41,7 @@ case class AggregateEvaluation(
  *                ensure all values where `groupingExpressions` are equal are present.
  * @param groupingExpressions expressions that are evaluated to determine grouping.
  * @param aggregateExpressions expressions that are computed for each group.
+ * @param unsafeEnabled whether to allow Unsafe-based aggregation buffers to be used.
  * @param child the input data source.
  */
 @DeveloperApi
@@ -47,6 +49,7 @@ case class GeneratedAggregate(
     partial: Boolean,
     groupingExpressions: Seq[Expression],
     aggregateExpressions: Seq[NamedExpression],
+    unsafeEnabled: Boolean,
     child: SparkPlan)
   extends UnaryNode {
 
@@ -153,51 +156,6 @@ case class GeneratedAggregate(
 
         AggregateEvaluation(currentSum :: Nil, initialValue :: Nil, updateFunction :: Nil, result)
         
-      case a @ Average(expr) =>
-        val calcType =
-          expr.dataType match {
-            case DecimalType.Fixed(_, _) =>
-              DecimalType.Unlimited
-            case _ =>
-              expr.dataType
-          }
-
-        val currentCount = AttributeReference("currentCount", LongType, nullable = false)()
-        val currentSum = AttributeReference("currentSum", calcType, nullable = false)()
-        val initialCount = Literal(0L)
-        val initialSum = Cast(Literal(0L), calcType)
-
-        // If we're evaluating UnscaledValue(x), we can do Count on x directly, since its
-        // UnscaledValue will be null if and only if x is null; helps with Average on decimals
-        val toCount = expr match {
-          case UnscaledValue(e) => e
-          case _ => expr
-        }
-
-        val updateCount = If(IsNotNull(toCount), Add(currentCount, Literal(1L)), currentCount)
-        val updateSum = Coalesce(Add(Cast(expr, calcType), currentSum) :: currentSum :: Nil)
-
-        val result =
-          expr.dataType match {
-            case DecimalType.Fixed(_, _) =>
-              If(EqualTo(currentCount, Literal(0L)),
-                Literal.create(null, a.dataType),
-                Cast(Divide(
-                  Cast(currentSum, DecimalType.Unlimited),
-                  Cast(currentCount, DecimalType.Unlimited)), a.dataType))
-            case _ =>
-              If(EqualTo(currentCount, Literal(0L)),
-                Literal.create(null, a.dataType),
-                Divide(Cast(currentSum, a.dataType), Cast(currentCount, a.dataType)))
-          }
-
-        AggregateEvaluation(
-          currentCount :: currentSum :: Nil,
-          initialCount :: initialSum :: Nil,
-          updateCount :: updateSum :: Nil,
-          result
-        )
-
       case m @ Max(expr) =>
         val currentMax = AttributeReference("currentMax", expr.dataType, nullable = true)()
         val initialValue = Literal.create(null, expr.dataType)
@@ -208,6 +166,17 @@ case class GeneratedAggregate(
           initialValue :: Nil,
           updateMax :: Nil,
           currentMax)
+
+      case m @ Min(expr) =>
+        val currentMin = AttributeReference("currentMin", expr.dataType, nullable = true)()
+        val initialValue = Literal.create(null, expr.dataType)
+        val updateMin = MinOf(currentMin, expr)
+
+        AggregateEvaluation(
+          currentMin :: Nil,
+          initialValue :: Nil,
+          updateMin :: Nil,
+          currentMin)
 
       case CollectHashSet(Seq(expr)) =>
         val set =
@@ -233,6 +202,8 @@ case class GeneratedAggregate(
           initialValue :: Nil,
           collectSets :: Nil,
           CountSet(set))
+
+      case o => sys.error(s"$o can't be codegened.")
     }
 
     val computationSchema = computeFunctions.flatMap(_.schema)
@@ -256,6 +227,21 @@ case class GeneratedAggregate(
       case e: Expression if resultMap.contains(new TreeNodeRef(e)) => resultMap(new TreeNodeRef(e))
       case e: Expression if groupMap.contains(e) => groupMap(e)
     })
+
+    val aggregationBufferSchema: StructType = StructType.fromAttributes(computationSchema)
+
+    val groupKeySchema: StructType = {
+      val fields = groupingExpressions.zipWithIndex.map { case (expr, idx) =>
+        // This is a dummy field name
+        StructField(idx.toString, expr.dataType, expr.nullable)
+      }
+      StructType(fields)
+    }
+
+    val schemaSupportsUnsafe: Boolean = {
+      UnsafeFixedWidthAggregationMap.supportsAggregationBufferSchema(aggregationBufferSchema) &&
+        UnsafeFixedWidthAggregationMap.supportsGroupKeySchema(groupKeySchema)
+    }
 
     child.execute().mapPartitions { iter =>
       // Builds a new custom class for holding the results of aggregation for a group.
@@ -297,7 +283,49 @@ case class GeneratedAggregate(
 
         val resultProjection = resultProjectionBuilder()
         Iterator(resultProjection(buffer))
+      } else if (unsafeEnabled && schemaSupportsUnsafe) {
+        log.info("Using Unsafe-based aggregator")
+        val aggregationMap = new UnsafeFixedWidthAggregationMap(
+          newAggregationBuffer(EmptyRow),
+          aggregationBufferSchema,
+          groupKeySchema,
+          TaskContext.get.taskMemoryManager(),
+          1024 * 16, // initial capacity
+          false // disable tracking of performance metrics
+        )
+
+        while (iter.hasNext) {
+          val currentRow: Row = iter.next()
+          val groupKey: Row = groupProjection(currentRow)
+          val aggregationBuffer = aggregationMap.getAggregationBuffer(groupKey)
+          updateProjection.target(aggregationBuffer)(joinedRow(aggregationBuffer, currentRow))
+        }
+
+        new Iterator[Row] {
+          private[this] val mapIterator = aggregationMap.iterator()
+          private[this] val resultProjection = resultProjectionBuilder()
+
+          def hasNext: Boolean = mapIterator.hasNext
+
+          def next(): Row = {
+            val entry = mapIterator.next()
+            val result = resultProjection(joinedRow(entry.key, entry.value))
+            if (hasNext) {
+              result
+            } else {
+              // This is the last element in the iterator, so let's free the buffer. Before we do,
+              // though, we need to make a defensive copy of the result so that we don't return an
+              // object that might contain dangling pointers to the freed memory
+              val resultCopy = result.copy()
+              aggregationMap.free()
+              resultCopy
+            }
+          }
+        }
       } else {
+        if (unsafeEnabled) {
+          log.info("Not using Unsafe-based aggregator because it is not supported for this schema")
+        }
         val buffers = new java.util.HashMap[Row, MutableRow]()
 
         var currentRow: Row = null

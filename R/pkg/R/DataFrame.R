@@ -17,7 +17,7 @@
 
 # DataFrame.R - DataFrame class and methods implemented in S4 OO classes
 
-#' @include jobj.R SQLTypes.R RDD.R pairRDD.R column.R group.R
+#' @include generics.R jobj.R schema.R RDD.R pairRDD.R column.R group.R
 NULL
 
 setOldClass("jobj")
@@ -167,7 +167,7 @@ setMethod("isLocal",
 setMethod("showDF",
           signature(x = "DataFrame"),
           function(x, numRows = 20) {
-            cat(callJMethod(x@sdf, "showString", numToInt(numRows)), "\n")
+            callJMethod(x@sdf, "showString", numToInt(numRows))
           })
 
 #' show
@@ -272,7 +272,7 @@ setMethod("names",
 setMethod("registerTempTable",
           signature(x = "DataFrame", tableName = "character"),
           function(x, tableName) {
-              callJMethod(x@sdf, "registerTempTable", tableName)
+              invisible(callJMethod(x@sdf, "registerTempTable", tableName))
           })
 
 #' insertInto
@@ -790,9 +790,12 @@ setMethod("$", signature(x = "DataFrame"),
 
 setMethod("$<-", signature(x = "DataFrame"),
           function(x, name, value) {
-            stopifnot(class(value) == "Column")
+            stopifnot(class(value) == "Column" || is.null(value))
             cols <- columns(x)
             if (name %in% cols) {
+              if (is.null(value)) {
+                cols <- Filter(function(c) { c != name }, cols)
+              }
               cols <- lapply(cols, function(c) {
                 if (c == name) {
                   alias(value, name)
@@ -802,6 +805,9 @@ setMethod("$<-", signature(x = "DataFrame"),
               })
               nx <- select(x, cols)
             } else {
+              if (is.null(value)) {
+                return(x)
+              }
               nx <- withColumn(x, name, value)
             }
             x@sdf <- nx@sdf
@@ -1141,15 +1147,15 @@ setMethod("intersect",
             dataFrame(intersected)
           })
 
-#' Subtract
+#' except
 #'
 #' Return a new DataFrame containing rows in this DataFrame
 #' but not in another DataFrame. This is equivalent to `EXCEPT` in SQL.
 #'
 #' @param x A Spark DataFrame
 #' @param y A Spark DataFrame
-#' @return A DataFrame containing the result of the subtract operation.
-#' @rdname subtract
+#' @return A DataFrame containing the result of the except operation.
+#' @rdname except
 #' @export
 #' @examples
 #'\dontrun{
@@ -1157,13 +1163,15 @@ setMethod("intersect",
 #' sqlCtx <- sparkRSQL.init(sc)
 #' df1 <- jsonFile(sqlCtx, path)
 #' df2 <- jsonFile(sqlCtx, path2)
-#' subtractDF <- subtract(df, df2)
+#' exceptDF <- except(df, df2)
 #' }
-setMethod("subtract",
+#' @rdname except
+#' @export
+setMethod("except",
           signature(x = "DataFrame", y = "DataFrame"),
           function(x, y) {
-            subtracted <- callJMethod(x@sdf, "except", y@sdf)
-            dataFrame(subtracted)
+            excepted <- callJMethod(x@sdf, "except", y@sdf)
+            dataFrame(excepted)
           })
 
 #' Save the contents of the DataFrame to a data source
@@ -1268,3 +1276,40 @@ setMethod("saveAsTable",
             callJMethod(df@sdf, "saveAsTable", tableName, source, jmode, options)
           })
 
+#' describe
+#'
+#' Computes statistics for numeric columns.
+#' If no columns are given, this function computes statistics for all numerical columns.
+#'
+#' @param x A DataFrame to be computed.
+#' @param col A string of name
+#' @param ... Additional expressions
+#' @return A DataFrame
+#' @rdname describe 
+#' @export
+#' @examples
+#'\dontrun{
+#' sc <- sparkR.init()
+#' sqlCtx <- sparkRSQL.init(sc)
+#' path <- "path/to/file.json"
+#' df <- jsonFile(sqlCtx, path)
+#' describe(df)
+#' describe(df, "col1")
+#' describe(df, "col1", "col2")
+#' }
+setMethod("describe",
+          signature(x = "DataFrame", col = "character"),
+          function(x, col, ...) {
+            colList <- list(col, ...)
+            sdf <- callJMethod(x@sdf, "describe", listToSeq(colList))
+            dataFrame(sdf)
+          })
+
+#' @rdname describe
+setMethod("describe",
+          signature(x = "DataFrame"),
+          function(x) {
+            colList <- as.list(c(columns(x)))
+            sdf <- callJMethod(x@sdf, "describe", listToSeq(colList))
+            dataFrame(sdf)
+          })

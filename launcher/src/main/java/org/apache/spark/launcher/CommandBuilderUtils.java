@@ -30,6 +30,7 @@ class CommandBuilderUtils {
   static final String DEFAULT_MEM = "512m";
   static final String DEFAULT_PROPERTIES_FILE = "spark-defaults.conf";
   static final String ENV_SPARK_HOME = "SPARK_HOME";
+  static final String ENV_SPARK_ASSEMBLY = "_SPARK_ASSEMBLY";
 
   /** Returns whether the given string is null or empty. */
   static boolean isEmpty(String s) {
@@ -243,7 +244,7 @@ class CommandBuilderUtils {
     boolean needsQuotes = false;
     for (int i = 0; i < arg.length(); i++) {
       int c = arg.codePointAt(i);
-      if (Character.isWhitespace(c) || c == '"' || c == '=') {
+      if (Character.isWhitespace(c) || c == '"' || c == '=' || c == ',' || c == ';') {
         needsQuotes = true;
         break;
       }
@@ -260,14 +261,13 @@ class CommandBuilderUtils {
         quoted.append('"');
         break;
 
-      case '=':
-        quoted.append('^');
-        break;
-
       default:
         break;
       }
       quoted.appendCodePoint(cp);
+    }
+    if (arg.codePointAt(arg.length() - 1) == '\\') {
+      quoted.append("\\");
     }
     quoted.append("\"");
     return quoted.toString();

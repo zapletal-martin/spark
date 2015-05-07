@@ -23,7 +23,6 @@ import org.scalatest.FunSuite
 
 import org.apache.spark.SparkException
 import org.apache.spark.ml.attribute._
-import org.apache.spark.ml.util.TestingUtils
 import org.apache.spark.mllib.linalg.{SparseVector, Vector, Vectors}
 import org.apache.spark.mllib.util.MLlibTestSparkContext
 import org.apache.spark.rdd.RDD
@@ -111,8 +110,8 @@ class VectorIndexerSuite extends FunSuite with MLlibTestSparkContext {
     val model = vectorIndexer.fit(densePoints1) // vectors of length 3
     model.transform(densePoints1) // should work
     model.transform(sparsePoints1) // should work
-    intercept[IllegalArgumentException] {
-      model.transform(densePoints2)
+    intercept[SparkException] {
+      model.transform(densePoints2).collect()
       println("Did not throw error when fit, transform were called on vectors of different lengths")
     }
     intercept[SparkException] {
@@ -150,7 +149,8 @@ class VectorIndexerSuite extends FunSuite with MLlibTestSparkContext {
         val vectorIndexer = getIndexer.setMaxCategories(maxCategories)
         val model = vectorIndexer.fit(data)
         val categoryMaps = model.categoryMaps
-        assert(categoryMaps.keys.toSet === categoricalFeatures) // Chose correct categorical features
+        // Chose correct categorical features
+        assert(categoryMaps.keys.toSet === categoricalFeatures)
         val transformed = model.transform(data).select("indexed")
         val indexedRDD: RDD[Vector] = transformed.map(_.getAs[Vector](0))
         val featureAttrs = AttributeGroup.fromStructField(transformed.schema("indexed"))
@@ -227,7 +227,7 @@ class VectorIndexerSuite extends FunSuite with MLlibTestSparkContext {
     }
     val attrGroup = new AttributeGroup("features", featureAttributes)
     val densePoints1WithMeta =
-      densePoints1.select(densePoints1("features").as("features", attrGroup.toMetadata))
+      densePoints1.select(densePoints1("features").as("features", attrGroup.toMetadata()))
     val vectorIndexer = getIndexer.setMaxCategories(2)
     val model = vectorIndexer.fit(densePoints1WithMeta)
     // Check that ML metadata are preserved.
@@ -244,8 +244,6 @@ class VectorIndexerSuite extends FunSuite with MLlibTestSparkContext {
           // TODO: Once input features marked as categorical are handled correctly, check that here.
       }
     }
-    // Check that non-ML metadata are preserved.
-    TestingUtils.testPreserveMetadata(densePoints1WithMeta, model, "features", "indexed")
   }
 }
 
