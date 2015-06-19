@@ -59,6 +59,9 @@ case class Generate(
     child: LogicalPlan)
   extends UnaryNode {
 
+  /** The set of all attributes produced by this node. */
+  def generatedSet: AttributeSet = AttributeSet(generatorOutput)
+
   override lazy val resolved: Boolean = {
     generator.resolved &&
       childrenResolved &&
@@ -90,7 +93,7 @@ case class Union(left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
 
   override lazy val resolved: Boolean =
     childrenResolved &&
-    left.output.zip(right.output).forall { case (l,r) => l.dataType == r.dataType }
+    left.output.zip(right.output).forall { case (l, r) => l.dataType == r.dataType }
 
   override def statistics: Statistics = {
     val sizeInBytes = left.statistics.sizeInBytes + right.statistics.sizeInBytes
@@ -149,16 +152,6 @@ case class InsertIntoTable(
   }
 }
 
-case class CreateTableAsSelect[T](
-    databaseName: Option[String],
-    tableName: String,
-    child: LogicalPlan,
-    allowExisting: Boolean,
-    desc: Option[T] = None) extends UnaryNode {
-  override def output: Seq[Attribute] = Seq.empty[Attribute]
-  override lazy val resolved: Boolean = databaseName != None && childrenResolved
-}
-
 /**
  * A container for holding named common table expressions (CTEs) and a query plan.
  * This operator will be removed during analysis and the relations will be substituted into child.
@@ -184,10 +177,10 @@ case class WriteToFile(
 }
 
 /**
- * @param order  The ordering expressions 
- * @param global True means global sorting apply for entire data set, 
+ * @param order  The ordering expressions
+ * @param global True means global sorting apply for entire data set,
  *               False means sorting only apply within the partition.
- * @param child  Child logical plan              
+ * @param child  Child logical plan
  */
 case class Sort(
     order: Seq[SortOrder],
@@ -233,7 +226,7 @@ case class Window(
  * @param child       Child operator
  */
 case class Expand(
-    projections: Seq[GroupExpression],
+    projections: Seq[Seq[Expression]],
     output: Seq[Attribute],
     child: LogicalPlan) extends UnaryNode {
   override def statistics: Statistics = {
@@ -346,6 +339,9 @@ case class Sample(
   override def output: Seq[Attribute] = child.output
 }
 
+/**
+ * Returns a new logical plan that dedups input rows.
+ */
 case class Distinct(child: LogicalPlan) extends UnaryNode {
   override def output: Seq[Attribute] = child.output
 }
