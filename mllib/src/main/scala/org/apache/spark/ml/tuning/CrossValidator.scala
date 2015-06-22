@@ -32,37 +32,7 @@ import org.apache.spark.sql.types.StructType
 /**
  * Params for [[CrossValidator]] and [[CrossValidatorModel]].
  */
-private[ml] trait CrossValidatorParams extends Params {
-
-  /**
-   * param for the estimator to be cross-validated
-   * @group param
-   */
-  val estimator: Param[Estimator[_]] = new Param(this, "estimator", "estimator for selection")
-
-  /** @group getParam */
-  def getEstimator: Estimator[_] = $(estimator)
-
-  /**
-   * param for estimator param maps
-   * @group param
-   */
-  val estimatorParamMaps: Param[Array[ParamMap]] =
-    new Param(this, "estimatorParamMaps", "param maps for the estimator")
-
-  /** @group getParam */
-  def getEstimatorParamMaps: Array[ParamMap] = $(estimatorParamMaps)
-
-  /**
-   * param for the evaluator used to select hyper-parameters that maximize the cross-validated
-   * metric
-   * @group param
-   */
-  val evaluator: Param[Evaluator] = new Param(this, "evaluator",
-    "evaluator used to select hyper-parameters that maximize the cross-validated metric")
-
-  /** @group getParam */
-  def getEvaluator: Evaluator = $(evaluator)
+private[ml] trait CrossValidatorParams extends ValidationParams {
 
   /**
    * Param for number of folds for cross validation.  Must be >= 2.
@@ -168,23 +138,10 @@ class CrossValidator(override val uid: String) extends Estimator[CrossValidatorM
  */
 @Experimental
 class CrossValidatorModel private[ml] (
-    override val uid: String,
-    val bestModel: Model[_],
-    val avgMetrics: Array[Double])
-  extends Model[CrossValidatorModel] with CrossValidatorParams {
-
-  override def validateParams(): Unit = {
-    bestModel.validateParams()
-  }
-
-  override def transform(dataset: DataFrame): DataFrame = {
-    transformSchema(dataset.schema, logging = true)
-    bestModel.transform(dataset)
-  }
-
-  override def transformSchema(schema: StructType): StructType = {
-    bestModel.transformSchema(schema)
-  }
+    uid: String,
+    bestModel: Model[_],
+    avgMetrics: Array[Double])
+  extends ValidationModel[CrossValidatorModel](uid, bestModel, avgMetrics) with CrossValidatorParams {
 
   override def copy(extra: ParamMap): CrossValidatorModel = {
     val copied = new CrossValidatorModel(
