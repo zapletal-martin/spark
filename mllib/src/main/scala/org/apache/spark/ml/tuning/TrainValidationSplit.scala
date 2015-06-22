@@ -5,14 +5,27 @@ import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.ml.{Estimator, Model}
-import org.apache.spark.ml.param.{ParamMap, ParamValidators, IntParam}
+import org.apache.spark.ml.param.{DoubleParam, ParamMap, ParamValidators, IntParam}
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.sql.DataFrame
 
 /**
  * Params for [[TrainValidationSplit]] and [[TrainValidationSplitModel]].
  */
-private[ml] trait TrainValidationSplitParams extends ValidationParams
+private[ml] trait TrainValidationSplitParams extends ValidationParams {
+  /**
+   * Param for number of folds for cross validation.  Must be >= 2.
+   * Default: 3
+   * @group param
+   */
+  val trainRatio: DoubleParam = new DoubleParam(this, "numFolds",
+    "ratio of training set and validation sed (>= 0 && <= 1)", ParamValidators.inRange(0, 1))
+
+  /** @group getParam */
+  def getTrainPercent: Double = $(trainRatio)
+
+  setDefault(trainRatio -> 0.75)
+}
 
 @Experimental
 class TrainValidationSplit(override val uid: String) extends Validation[TrainValidationSplitModel]
@@ -21,6 +34,9 @@ class TrainValidationSplit(override val uid: String) extends Validation[TrainVal
   def this() = this(Identifiable.randomUID("cv"))
 
   private val f2jBLAS = new F2jBLAS
+
+  /** @group setParam */
+  def setTrainRatio(value: Double): this.type = set(trainRatio, value)
 
   override def fit(dataset: DataFrame): TrainValidationSplitModel = {
     val schema = dataset.schema

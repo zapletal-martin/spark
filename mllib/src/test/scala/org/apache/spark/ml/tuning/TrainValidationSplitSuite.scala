@@ -21,6 +21,7 @@ class TrainValidationSplitSuite extends ValidationSuite {
       .setEstimator(lr)
       .setEstimatorParamMaps(lrParamMaps)
       .setEvaluator(eval)
+      .setTrainRatio(0.5)
     val cvModel = cv.fit(dataset)
     val parent = cvModel.bestModel.parent.asInstanceOf[LogisticRegression]
     assert(parent.getRegParam === 0.001)
@@ -43,6 +44,7 @@ class TrainValidationSplitSuite extends ValidationSuite {
       .setEstimator(trainer)
       .setEstimatorParamMaps(lrParamMaps)
       .setEvaluator(eval)
+      .setTrainRatio(0.5)
     val cvModel = cv.fit(dataset)
     val parent = cvModel.bestModel.parent.asInstanceOf[LinearRegression]
     assert(parent.getRegParam === 0.001)
@@ -70,7 +72,7 @@ class TrainValidationSplitSuite extends ValidationSuite {
       .setEstimator(est)
       .setEstimatorParamMaps(paramMaps)
       .setEvaluator(eval)
-
+      .setTrainRatio(0.5)
     cv.validateParams() // This should pass.
 
     val invalidParamMaps = paramMaps :+ ParamMap(est.inputCol -> "")
