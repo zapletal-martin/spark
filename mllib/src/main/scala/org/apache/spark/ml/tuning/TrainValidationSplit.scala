@@ -1,11 +1,11 @@
 package org.apache.spark.ml.tuning
 
-import com.github.fommil.netlib.F2jBLAS
 import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
-import org.apache.spark.ml.util.Identifiable
+import org.apache.spark.ml.evaluation.Evaluator
 import org.apache.spark.ml.{Estimator, Model}
-import org.apache.spark.ml.param.{DoubleParam, ParamMap, ParamValidators, IntParam}
+import org.apache.spark.ml.param.{DoubleParam, ParamMap, ParamValidators}
+import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.sql.DataFrame
 
@@ -41,20 +41,15 @@ class TrainValidationSplit(uid: String)
 
   def this() = this(Identifiable.randomUID("cv"))
 
-  private val f2jBLAS = new F2jBLAS
-
   /** @group setParam */
   def setTrainRatio(value: Double): this.type = set(trainRatio, value)
 
-  override def fit(dataset: DataFrame): TrainValidationSplitModel = {
+  override protected def validationLogic(dataset: DataFrame, est: Estimator[_], eval: Evaluator, epm: Array[ParamMap], numModels: Int): Array[Double] = {
     val schema = dataset.schema
     transformSchema(schema, logging = true)
     val sqlCtx = dataset.sqlContext
-    val est = $(estimator)
-    val eval = $(evaluator)
-    val epm = $(estimatorParamMaps)
-    val numModels = epm.length
-    val splits = MLUtils.sample(dataset.rdd, 2, 3d/4d, 4d/4d)
+
+    val splits = MLUtils.sample(dataset.rdd, 2, $(trainRatio), 4d/4d)
     val training = splits._1
     val validation = splits._2
 
@@ -62,13 +57,11 @@ class TrainValidationSplit(uid: String)
     val validationDataset = sqlCtx.createDataFrame(validation, schema).cache()
 
     val metrics = measureModels(trainingDataset, validationDataset, est, eval, epm, numModels)
-
     f2jBLAS.dscal(numModels, 1.0, metrics, 1)
-    logInfo(s"Average validation metrics: ${metrics.toSeq}")
-    val (bestMetric, bestIndex) = metrics.zipWithIndex.maxBy(_._1)
-    logInfo(s"Best set of parameters:\n${epm(bestIndex)}")
-    logInfo(s"Best cross-validation metric: $bestMetric.")
-    val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
+    metrics
+  }
+
+  override protected def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): TrainValidationSplitModel = {
     copyValues(new TrainValidationSplitModel(uid, bestModel, metrics).setParent(this))
   }
 }

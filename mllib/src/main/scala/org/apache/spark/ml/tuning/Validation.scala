@@ -1,16 +1,31 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.spark.ml.tuning
 
 import com.github.fommil.netlib.F2jBLAS
 import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
-import org.apache.spark.ml.util.Identifiable
-import org.apache.spark.ml.{Model, Estimator}
 import org.apache.spark.ml.evaluation.Evaluator
 import org.apache.spark.ml.param._
-import org.apache.spark.mllib.util.MLUtils
+import org.apache.spark.ml.util.Identifiable
+import org.apache.spark.ml.{Model, Estimator}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.types.StructType
-import scala.reflect.runtime.universe._
 
 import scala.reflect.ClassTag
 
@@ -57,7 +72,7 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
 
   def this() = this(Identifiable.randomUID("cv"))
 
-  private val f2jBLAS = new F2jBLAS
+  protected val f2jBLAS = new F2jBLAS
 
   /** @group setParam */
   def setEstimator(value: Estimator[_]): V = set(estimator, value).asInstanceOf[V]
@@ -67,6 +82,24 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
 
   /** @group setParam */
   def setEvaluator(value: Evaluator): V = set(evaluator, value).asInstanceOf[V]
+
+  override def fit(dataset: DataFrame): M = {
+    val sqlCtx = dataset.sqlContext
+    val est = $(estimator)
+    val eval = $(evaluator)
+    val epm = $(estimatorParamMaps)
+    val numModels = epm.length
+
+    val metrics = validationLogic(dataset, est, eval, epm, numModels)
+
+    logInfo(s"Average validation metrics: ${metrics.toSeq}")
+    val (bestMetric, bestIndex) = metrics.zipWithIndex.maxBy(_._1)
+    logInfo(s"Best set of parameters:\n${epm(bestIndex)}")
+    logInfo(s"Best cross-validation metric: $bestMetric.")
+    val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
+
+    createModel(uid, bestModel, metrics)
+  }
 
   protected def measureModels(
       trainingDataset: DataFrame,
@@ -93,48 +126,10 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
 
     metrics
   }
-/*
-  def validate(
-      dataset: DataFrame,
-      model: (String, Model[_], Array[Double]) => M,
-      validationMetrics: DataFrame => Array[Double]) = {
 
-    val schema = dataset.schema
-    transformSchema(schema, logging = true)
-    val sqlCtx = dataset.sqlContext
-    val est = $(estimator)
-    val eval = $(evaluator)
-    val epm = $(estimatorParamMaps)
-    val numModels = epm.length
+  protected def validationLogic(dataset: DataFrame, est: Estimator[_], eval: Evaluator, epm: Array[ParamMap], numModels: Int): Array[Double]
 
-    val metrics = new Array[Double](epm.length)
-    val splits = MLUtils.sample(dataset.rdd, 2, 3d/4d, 4d/4d)
-    val training = splits._1
-    val validation = splits._2
-
-    val trainingDataset = sqlCtx.createDataFrame(training, schema).cache()
-    val validationDataset = sqlCtx.createDataFrame(validation, schema).cache()
-    // multi-model training
-    val models = est.fit(trainingDataset, epm).asInstanceOf[Seq[Model[_]]]
-    trainingDataset.unpersist()
-    var i = 0
-    while (i < numModels) {
-      // TODO: duplicate evaluator to take extra params from input
-      val metric = eval.evaluate(models(i).transform(validationDataset, epm(i)))
-      logDebug(s"Got metric $metric for model trained with ${epm(i)}.")
-      metrics(i) += metric
-      i += 1
-    }
-    validationDataset.unpersist()
-
-    f2jBLAS.dscal(numModels, 1.0, metrics, 1)
-    logInfo(s"Average validation metrics: ${metrics.toSeq}")
-    val (bestMetric, bestIndex) = metrics.zipWithIndex.maxBy(_._1)
-    logInfo(s"Best set of parameters:\n${epm(bestIndex)}")
-    logInfo(s"Best cross-validation metric: $bestMetric.")
-    val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
-    copyValues(new TrainValidationSplitModel(uid, bestModel, metrics).setParent(this))
-  }*/
+  protected def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): M
 
   override def transformSchema(schema: StructType): StructType = {
     $(estimator).transformSchema(schema)

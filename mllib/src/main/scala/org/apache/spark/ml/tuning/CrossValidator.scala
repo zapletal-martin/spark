@@ -17,8 +17,6 @@
 
 package org.apache.spark.ml.tuning
 
-import com.github.fommil.netlib.F2jBLAS
-
 import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.ml._
@@ -27,7 +25,6 @@ import org.apache.spark.ml.param._
 import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.types.StructType
 
 /**
  * Params for [[CrossValidator]] and [[CrossValidatorModel]].
@@ -59,19 +56,13 @@ class CrossValidator(uid: String)
 
   def this() = this(Identifiable.randomUID("cv"))
 
-  private val f2jBLAS = new F2jBLAS
-
   /** @group setParam */
   def setNumFolds(value: Int): this.type = set(numFolds, value)
 
-  override def fit(dataset: DataFrame): CrossValidatorModel = {
+  override protected def validationLogic(dataset: DataFrame, est: Estimator[_], eval: Evaluator, epm: Array[ParamMap], numModels: Int): Array[Double] = {
     val schema = dataset.schema
     transformSchema(schema, logging = true)
     val sqlCtx = dataset.sqlContext
-    val est = $(estimator)
-    val eval = $(evaluator)
-    val epm = $(estimatorParamMaps)
-    val numModels = epm.length
 
     val metrics = new Array[Double](epm.length)
     val splits = MLUtils.kFold(dataset.rdd, $(numFolds), 0)
@@ -89,13 +80,12 @@ class CrossValidator(uid: String)
         i += 1
       }
     }
-    
+
     f2jBLAS.dscal(numModels, 1.0 / $(numFolds), metrics, 1)
-    logInfo(s"Average cross-validation metrics: ${metrics.toSeq}")
-    val (bestMetric, bestIndex) = metrics.zipWithIndex.maxBy(_._1)
-    logInfo(s"Best set of parameters:\n${epm(bestIndex)}")
-    logInfo(s"Best cross-validation metric: $bestMetric.")
-    val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
+    metrics
+  }
+
+  override protected def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): CrossValidatorModel = {
     copyValues(new CrossValidatorModel(uid, bestModel, metrics).setParent(this))
   }
 }
