@@ -14,12 +14,12 @@ import org.apache.spark.sql.DataFrame
  */
 private[ml] trait TrainValidationSplitParams extends ValidationParams {
   /**
-   * Param for number of folds for cross validation.  Must be >= 2.
-   * Default: 3
+   * Param for ratio between train and validation data. Must be between 0 and 1.
+   * Default: 0.75
    * @group param
    */
   val trainRatio: DoubleParam = new DoubleParam(this, "numFolds",
-    "ratio of training set and validation sed (>= 0 && <= 1)", ParamValidators.inRange(0, 1))
+    "ratio between training set and validation set (>= 0 && <= 1)", ParamValidators.inRange(0, 1))
 
   /** @group getParam */
   def getTrainPercent: Double = $(trainRatio)
@@ -27,8 +27,16 @@ private[ml] trait TrainValidationSplitParams extends ValidationParams {
   setDefault(trainRatio -> 0.75)
 }
 
+/**
+ * :: Experimental ::
+ * Validation for hyper-parameter tuning.
+ * Randomly splits the input dataset into train and validation sets.
+ * And uses evaluation metric on the validation set to select the best model.
+ * Similar to CrossValidator, but only splits the set once.
+ */
 @Experimental
-class TrainValidationSplit(override val uid: String) extends Validation[TrainValidationSplitModel]
+class TrainValidationSplit(uid: String)
+  extends Validation[TrainValidationSplitModel, TrainValidationSplit](uid)
   with TrainValidationSplitParams with Logging {
 
   def this() = this(Identifiable.randomUID("cv"))
@@ -46,25 +54,14 @@ class TrainValidationSplit(override val uid: String) extends Validation[TrainVal
     val eval = $(evaluator)
     val epm = $(estimatorParamMaps)
     val numModels = epm.length
-    val metrics = new Array[Double](epm.length)
     val splits = MLUtils.sample(dataset.rdd, 2, 3d/4d, 4d/4d)
     val training = splits._1
     val validation = splits._2
 
     val trainingDataset = sqlCtx.createDataFrame(training, schema).cache()
     val validationDataset = sqlCtx.createDataFrame(validation, schema).cache()
-    // multi-model training
-    val models = est.fit(trainingDataset, epm).asInstanceOf[Seq[Model[_]]]
-    trainingDataset.unpersist()
-    var i = 0
-    while (i < numModels) {
-      // TODO: duplicate evaluator to take extra params from input
-      val metric = eval.evaluate(models(i).transform(validationDataset, epm(i)))
-      logDebug(s"Got metric $metric for model trained with ${epm(i)}.")
-      metrics(i) += metric
-      i += 1
-    }
-    validationDataset.unpersist()
+
+    val metrics = measureModels(trainingDataset, validationDataset, est, eval, epm, numModels)
 
     f2jBLAS.dscal(numModels, 1.0, metrics, 1)
     logInfo(s"Average validation metrics: ${metrics.toSeq}")
@@ -74,22 +71,11 @@ class TrainValidationSplit(override val uid: String) extends Validation[TrainVal
     val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
     copyValues(new TrainValidationSplitModel(uid, bestModel, metrics).setParent(this))
   }
-
-  override def copy(extra: ParamMap): TrainValidationSplit = {
-    val copied = defaultCopy(extra).asInstanceOf[TrainValidationSplit]
-    if (copied.isDefined(estimator)) {
-      copied.setEstimator(copied.getEstimator.copy(extra))
-    }
-    if (copied.isDefined(evaluator)) {
-      copied.setEvaluator(copied.getEvaluator.copy(extra))
-    }
-    copied
-  }
 }
 
 /**
  * :: Experimental ::
- * Model from k-fold cross validation.
+ * Model from train validation split.
  */
 @Experimental
 class TrainValidationSplitModel private[ml] (

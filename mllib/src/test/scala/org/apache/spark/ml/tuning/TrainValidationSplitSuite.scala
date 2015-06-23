@@ -2,15 +2,17 @@ package org.apache.spark.ml.tuning
 
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.ml.classification.LogisticRegression
-import org.apache.spark.ml.evaluation.{RegressionEvaluator, BinaryClassificationEvaluator}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, RegressionEvaluator}
 import org.apache.spark.ml.param.ParamMap
 import org.apache.spark.ml.regression.LinearRegression
 import org.apache.spark.mllib.classification.LogisticRegressionSuite._
 import org.apache.spark.mllib.util.{LinearDataGenerator, MLlibTestSparkContext}
-import org.apache.spark.sql.{SQLContext, DataFrame}
 
-class TrainValidationSplitSuite extends ValidationSuite {
+class TrainValidationSplitSuite extends SparkFunSuite with MLlibTestSparkContext {
   test("train validation with logistic regression") {
+    val dataset = sqlContext.createDataFrame(
+      sc.parallelize(generateLogisticInput(1.0, 1.0, 100, 42), 2))
+
     val lr = new LogisticRegression
     val lrParamMaps = new ParamGridBuilder()
       .addGrid(lr.regParam, Array(0.001, 1000.0))
@@ -60,7 +62,7 @@ class TrainValidationSplitSuite extends ValidationSuite {
   }
 
   test("validateParams should check estimatorParamMaps") {
-    import ValidationSuite._
+    import org.apache.spark.ml.tuning.ValidationSuite._
 
     val est = new MyEstimator("est")
     val eval = new MyEvaluator
