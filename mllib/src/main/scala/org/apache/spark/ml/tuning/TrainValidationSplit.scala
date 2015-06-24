@@ -72,12 +72,10 @@ class TrainValidationSplit(uid: String)
     transformSchema(schema, logging = true)
     val sqlCtx = dataset.sqlContext
 
-    val splits = MLUtils.sample(dataset.rdd, 2, $(trainRatio), 4d/4d)
+    val splits = MLUtils.sample(dataset.rdd, $(trainRatio), 1)
     val trainingDataset = sqlCtx.createDataFrame(splits._1, schema).cache()
     val validationDataset = sqlCtx.createDataFrame(splits._2, schema).cache()
-    val metrics = measureModels(trainingDataset, validationDataset, est, eval, epm, numModels)
-    f2jBLAS.dscal(numModels, 1.0, metrics, 1)
-    metrics
+    measureModels(trainingDataset, validationDataset, est, eval, epm, numModels)
   }
 
   override protected[ml] def createModel(

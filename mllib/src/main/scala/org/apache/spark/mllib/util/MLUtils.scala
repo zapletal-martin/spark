@@ -17,6 +17,8 @@
 
 package org.apache.spark.mllib.util
 
+import org.apache.spark.util.Utils
+
 import scala.reflect.ClassTag
 
 import breeze.linalg.{DenseVector => BDV, SparseVector => BSV}
@@ -258,7 +260,7 @@ object MLUtils {
   def kFold[T: ClassTag](rdd: RDD[T], numFolds: Int, seed: Int): Array[(RDD[T], RDD[T])] = {
     val numFoldsF = numFolds.toFloat
     (1 to numFolds).map { fold =>
-      sample(rdd, seed, (fold - 1) / numFoldsF, fold / numFoldsF)
+      sample(rdd, (fold - 1) / numFoldsF, fold / numFoldsF, seed)
     }.toArray
   }
 
@@ -269,7 +271,11 @@ object MLUtils {
    * element, the validation data, containing a unique 1/kth of the data. Where k=numFolds.
    */
   @Experimental
-  def sample[T: ClassTag](rdd: RDD[T], seed: Int, lb: Double, ub: Double): (RDD[T], RDD[T]) = {
+  def sample[T: ClassTag](
+      rdd: RDD[T],
+      lb: Double,
+      ub: Double,
+      seed: Int = Utils.random.nextInt()): (RDD[T], RDD[T]) = {
     val sampler = new BernoulliCellSampler[T](lb, ub, complement = false)
     val validation = new PartitionwiseSampledRDD(rdd, sampler, true, seed)
     val training = new PartitionwiseSampledRDD(rdd, sampler.cloneComplement(), true, seed)

@@ -72,8 +72,6 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
 
   def this() = this(Identifiable.randomUID("cv"))
 
-  protected val f2jBLAS = new F2jBLAS
-
   /** @group setParam */
   def setEstimator(value: Estimator[_]): V = set(estimator, value).asInstanceOf[V]
 

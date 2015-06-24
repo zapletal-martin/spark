@@ -17,6 +17,7 @@
 
 package org.apache.spark.ml.tuning
 
+import com.github.fommil.netlib.F2jBLAS
 import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.ml._
@@ -55,6 +56,8 @@ class CrossValidator(uid: String)
   with CrossValidatorParams with Logging {
 
   def this() = this(Identifiable.randomUID("cv"))
+
+  private val f2jBLAS = new F2jBLAS
 
   /** @group setParam */
   def setNumFolds(value: Int): this.type = set(numFolds, value)
