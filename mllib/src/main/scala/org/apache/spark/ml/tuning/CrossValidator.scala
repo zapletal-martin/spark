@@ -18,6 +18,7 @@
 package org.apache.spark.ml.tuning
 
 import com.github.fommil.netlib.F2jBLAS
+
 import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.ml._
@@ -31,7 +32,6 @@ import org.apache.spark.sql.DataFrame
  * Params for [[CrossValidator]] and [[CrossValidatorModel]].
  */
 private[ml] trait CrossValidatorParams extends ValidationParams {
-
   /**
    * Param for number of folds for cross validation.  Must be >= 2.
    * Default: 3

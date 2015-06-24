@@ -17,9 +17,8 @@
 
 package org.apache.spark.ml.tuning
 
-import com.github.fommil.netlib.F2jBLAS
 import org.apache.spark.Logging
-import org.apache.spark.annotation.Experimental
+import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.ml.evaluation.Evaluator
 import org.apache.spark.ml.param._
 import org.apache.spark.ml.util.Identifiable
@@ -30,8 +29,10 @@ import org.apache.spark.sql.types.StructType
 import scala.reflect.ClassTag
 
 /**
+ * :: DeveloperApi ::
  * Common params for [[TrainValidationSplitParams]] and [[CrossValidatorParams]].
  */
+@DeveloperApi
 private[ml] trait ValidationParams extends Params {
 
   /**
@@ -64,7 +65,11 @@ private[ml] trait ValidationParams extends Params {
   def getEvaluator: Evaluator = $(evaluator)
 }
 
-@Experimental
+/**
+ * :: DeveloperApi ::
+ * Abstract class for validation approaches for hyper-parameter tuning.
+ */
+@DeveloperApi
 private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : ClassTag]
   (override val uid: String)
   extends Estimator[M]
@@ -160,10 +165,10 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
 }
 
 /**
- * :: Experimental ::
+ * :: DeveloperApi ::
  * Model from validation.
  */
-@Experimental
+@DeveloperApi
 private[ml] abstract class ValidationModel[M <: Model[M]] private[ml] (
     override val uid: String,
     val bestModel: Model[_],
