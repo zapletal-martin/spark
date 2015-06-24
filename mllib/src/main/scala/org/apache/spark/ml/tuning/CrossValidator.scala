@@ -59,7 +59,13 @@ class CrossValidator(uid: String)
   /** @group setParam */
   def setNumFolds(value: Int): this.type = set(numFolds, value)
 
-  override protected def validationLogic(dataset: DataFrame, est: Estimator[_], eval: Evaluator, epm: Array[ParamMap], numModels: Int): Array[Double] = {
+  override protected[ml] def validationLogic(
+      dataset: DataFrame,
+      est: Estimator[_],
+      eval: Evaluator,
+      epm: Array[ParamMap],
+      numModels: Int): Array[Double] = {
+
     val schema = dataset.schema
     transformSchema(schema, logging = true)
     val sqlCtx = dataset.sqlContext
@@ -70,7 +76,6 @@ class CrossValidator(uid: String)
     splits.zipWithIndex.foreach { case ((training, validation), splitIndex) =>
       val trainingDataset = sqlCtx.createDataFrame(training, schema).cache()
       val validationDataset = sqlCtx.createDataFrame(validation, schema).cache()
-
       logDebug(s"Train split $splitIndex with multiple sets of parameters.")
       val newMetrics = measureModels(trainingDataset, validationDataset, est, eval, epm, numModels)
 
@@ -85,7 +90,10 @@ class CrossValidator(uid: String)
     metrics
   }
 
-  override protected def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): CrossValidatorModel = {
+  override protected[ml] def createModel(
+      uid: String,
+      bestModel: Model[_],
+      metrics: Array[Double]): CrossValidatorModel = {
     copyValues(new CrossValidatorModel(uid, bestModel, metrics).setParent(this))
   }
 }
@@ -99,7 +107,8 @@ class CrossValidatorModel private[ml] (
     uid: String,
     bestModel: Model[_],
     avgMetrics: Array[Double])
-  extends ValidationModel[CrossValidatorModel](uid, bestModel, avgMetrics) with CrossValidatorParams {
+  extends ValidationModel[CrossValidatorModel](uid, bestModel, avgMetrics)
+  with CrossValidatorParams {
 
   override def copy(extra: ParamMap): CrossValidatorModel = {
     val copied = new CrossValidatorModel(

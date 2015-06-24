@@ -1,3 +1,20 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.spark.ml.tuning
 
 import org.apache.spark.Logging
@@ -44,24 +61,29 @@ class TrainValidationSplit(uid: String)
   /** @group setParam */
   def setTrainRatio(value: Double): this.type = set(trainRatio, value)
 
-  override protected def validationLogic(dataset: DataFrame, est: Estimator[_], eval: Evaluator, epm: Array[ParamMap], numModels: Int): Array[Double] = {
+  override protected[ml] def validationLogic(
+      dataset: DataFrame,
+      est: Estimator[_],
+      eval: Evaluator,
+      epm: Array[ParamMap],
+      numModels: Int): Array[Double] = {
+
     val schema = dataset.schema
     transformSchema(schema, logging = true)
     val sqlCtx = dataset.sqlContext
 
     val splits = MLUtils.sample(dataset.rdd, 2, $(trainRatio), 4d/4d)
-    val training = splits._1
-    val validation = splits._2
-
-    val trainingDataset = sqlCtx.createDataFrame(training, schema).cache()
-    val validationDataset = sqlCtx.createDataFrame(validation, schema).cache()
-
+    val trainingDataset = sqlCtx.createDataFrame(splits._1, schema).cache()
+    val validationDataset = sqlCtx.createDataFrame(splits._2, schema).cache()
     val metrics = measureModels(trainingDataset, validationDataset, est, eval, epm, numModels)
     f2jBLAS.dscal(numModels, 1.0, metrics, 1)
     metrics
   }
 
-  override protected def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): TrainValidationSplitModel = {
+  override protected[ml] def createModel(
+      uid: String,
+      bestModel: Model[_],
+      metrics: Array[Double]): TrainValidationSplitModel = {
     copyValues(new TrainValidationSplitModel(uid, bestModel, metrics).setParent(this))
   }
 }
@@ -75,7 +97,8 @@ class TrainValidationSplitModel private[ml] (
     uid: String,
     bestModel: Model[_],
     avgMetrics: Array[Double])
-  extends ValidationModel[TrainValidationSplitModel](uid, bestModel, avgMetrics) with TrainValidationSplitParams {
+  extends ValidationModel[TrainValidationSplitModel](uid, bestModel, avgMetrics)
+  with TrainValidationSplitParams {
 
   override def copy(extra: ParamMap): TrainValidationSplitModel = {
     val copied = new TrainValidationSplitModel (

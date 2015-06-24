@@ -78,7 +78,8 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
   def setEstimator(value: Estimator[_]): V = set(estimator, value).asInstanceOf[V]
 
   /** @group setParam */
-  def setEstimatorParamMaps(value: Array[ParamMap]): V = set(estimatorParamMaps, value).asInstanceOf[V]
+  def setEstimatorParamMaps(value: Array[ParamMap]): V =
+    set(estimatorParamMaps, value).asInstanceOf[V]
 
   /** @group setParam */
   def setEvaluator(value: Evaluator): V = set(evaluator, value).asInstanceOf[V]
@@ -101,7 +102,7 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
     createModel(uid, bestModel, metrics)
   }
 
-  protected def measureModels(
+  private[ml] def measureModels(
       trainingDataset: DataFrame,
       validationDataset: DataFrame,
       est: Estimator[_],
@@ -127,9 +128,14 @@ private[ml] abstract class Validation[M <: Model[M], V <: Validation[M, _] : Cla
     metrics
   }
 
-  protected def validationLogic(dataset: DataFrame, est: Estimator[_], eval: Evaluator, epm: Array[ParamMap], numModels: Int): Array[Double]
+  protected[ml] def validationLogic(
+      dataset: DataFrame,
+      est: Estimator[_],
+      eval: Evaluator,
+      epm: Array[ParamMap],
+      numModels: Int): Array[Double]
 
-  protected def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): M
+  protected[ml] def createModel(uid: String, bestModel: Model[_], metrics: Array[Double]): M
 
   override def transformSchema(schema: StructType): StructType = {
     $(estimator).transformSchema(schema)
