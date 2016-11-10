@@ -51,15 +51,22 @@ abstract class GenericStrategy[PhysicalPlan <: TreeNode[PhysicalPlan]] extends L
  *
  * @tparam PhysicalPlan The type of physical plan produced by this [[QueryPlanner]]
  */
-abstract class QueryPlanner[PhysicalPlan <: TreeNode[PhysicalPlan]] {
+abstract class QueryPlanner[PhysicalPlan <: TreeNode[PhysicalPlan]] extends Logging {
   /** A list of execution strategies that can be used by the planner */
   def strategies: Seq[GenericStrategy[PhysicalPlan]]
 
   def plan(plan: LogicalPlan): Iterator[PhysicalPlan] = {
     // Obviously a lot to do here still...
 
+    log.error("----------------Logical plan------------------------")
+    log.error(plan.toString)
+    log.error("----------------------------------------")
     // Collect physical plan candidates.
-    val candidates = strategies.iterator.flatMap(_(plan))
+    val candidates = strategies.iterator.flatMap{ s =>
+      val result = s(plan)
+      log.error(s"Applying $s to plan with result ${s(plan)}")
+      result
+    }
 
     // The candidates may contain placeholders marked as [[planLater]],
     // so try to replace them by their child plans.
