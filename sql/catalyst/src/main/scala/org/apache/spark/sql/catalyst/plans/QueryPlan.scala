@@ -40,14 +40,13 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
   }
 
   /**
-   * Infers a set of `isNotNull` constraints from a given set of equality/comparison expressions as
-   * well as non-nullable attributes. For e.g., if an expression is of the form (`a > 5`), this
+   * Infers a set of `isNotNull` constraints from null intolerant expressions as well as
+   * non-nullable attributes. For e.g., if an expression is of the form (`a > 5`), this
    * returns a constraint of the form `isNotNull(a)`
    */
   private def constructIsNotNullConstraints(constraints: Set[Expression]): Set[Expression] = {
     // First, we propagate constraints from the null intolerant expressions.
-    var isNotNullConstraints: Set[Expression] =
-      constraints.flatMap(scanNullIntolerantExpr).map(IsNotNull(_))
+    var isNotNullConstraints: Set[Expression] = constraints.flatMap(inferIsNotNullConstraints)
 
     // Second, we infer additional constraints from non-nullable attributes that are part of the
     // operator's output
@@ -58,13 +57,27 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
   }
 
   /**
+   * Infer the Attribute-specific IsNotNull constraints from the null intolerant child expressions
+   * of constraints.
+   */
+  private def inferIsNotNullConstraints(constraint: Expression): Seq[Expression] =
+    constraint match {
+      // When the root is IsNotNull, we can push IsNotNull through the child null intolerant
+      // expressions
+      case IsNotNull(expr) => scanNullIntolerantAttribute(expr).map(IsNotNull(_))
+      // Constraints always return true for all the inputs. That means, null will never be returned.
+      // Thus, we can infer `IsNotNull(constraint)`, and also push IsNotNull through the child
+      // null intolerant expressions.
+      case _ => scanNullIntolerantAttribute(constraint).map(IsNotNull(_))
+    }
+
+  /**
    * Recursively explores the expressions which are null intolerant and returns all attributes
    * in these expressions.
    */
-  private def scanNullIntolerantExpr(expr: Expression): Seq[Attribute] = expr match {
+  private def scanNullIntolerantAttribute(expr: Expression): Seq[Attribute] = expr match {
     case a: Attribute => Seq(a)
-    case _: NullIntolerant | IsNotNull(_: NullIntolerant) =>
-      expr.children.flatMap(scanNullIntolerantExpr)
+    case _: NullIntolerant => expr.children.flatMap(scanNullIntolerantAttribute)
     case _ => Seq.empty[Attribute]
   }
 
@@ -229,31 +242,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
    * @param rule the rule to be applied to every expression in this operator.
    */
   def transformExpressionsDown(rule: PartialFunction[Expression, Expression]): this.type = {
-    var changed = false
-
-    @inline def transformExpressionDown(e: Expression): Expression = {
-      val newE = e.transformDown(rule)
-      if (newE.fastEquals(e)) {
-        e
-      } else {
-        changed = true
-        newE
-      }
-    }
-
-    def recursiveTransform(arg: Any): AnyRef = arg match {
-      case e: Expression => transformExpressionDown(e)
-      case Some(e: Expression) => Some(transformExpressionDown(e))
-      case m: Map[_, _] => m
-      case d: DataType => d // Avoid unpacking Structs
-      case seq: Traversable[_] => seq.map(recursiveTransform)
-      case other: AnyRef => other
-      case null => null
-    }
-
-    val newArgs = mapProductIterator(recursiveTransform)
-
-    if (changed) makeCopy(newArgs).asInstanceOf[this.type] else this
+    mapExpressions(_.transformDown(rule))
   }
 
   /**
@@ -263,10 +252,18 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
    * @return
    */
   def transformExpressionsUp(rule: PartialFunction[Expression, Expression]): this.type = {
+    mapExpressions(_.transformUp(rule))
+  }
+
+  /**
+   * Apply a map function to each expression present in this query operator, and return a new
+   * query operator based on the mapped expressions.
+   */
+  def mapExpressions(f: Expression => Expression): this.type = {
     var changed = false
 
-    @inline def transformExpressionUp(e: Expression): Expression = {
-      val newE = e.transformUp(rule)
+    @inline def transformExpression(e: Expression): Expression = {
+      val newE = f(e)
       if (newE.fastEquals(e)) {
         e
       } else {
@@ -276,8 +273,8 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
     }
 
     def recursiveTransform(arg: Any): AnyRef = arg match {
-      case e: Expression => transformExpressionUp(e)
-      case Some(e: Expression) => Some(transformExpressionUp(e))
+      case e: Expression => transformExpression(e)
+      case Some(e: Expression) => Some(transformExpression(e))
       case m: Map[_, _] => m
       case d: DataType => d // Avoid unpacking Structs
       case seq: Traversable[_] => seq.map(recursiveTransform)

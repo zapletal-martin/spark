@@ -37,8 +37,7 @@ import org.apache.spark._
 import org.apache.spark.Partitioner.defaultPartitioner
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.executor.OutputMetrics
-import org.apache.spark.internal.io.{FileCommitProtocol, HadoopMapReduceCommitProtocol, SparkHadoopMapReduceWriter, SparkHadoopWriterUtils}
+import org.apache.spark.internal.io.{SparkHadoopMapReduceWriter, SparkHadoopWriterUtils}
 import org.apache.spark.internal.Logging
 import org.apache.spark.partial.{BoundedDouble, PartialResult}
 import org.apache.spark.serializer.Serializer
@@ -57,8 +56,8 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * :: Experimental ::
    * Generic function to combine the elements for each key using a custom set of aggregation
    * functions. Turns an RDD[(K, V)] into a result of type RDD[(K, C)], for a "combined type" C
-   * Note that V and C can be different -- for example, one might group an RDD of type
-   * (Int, Int) into an RDD of type (Int, Seq[Int]). Users provide three functions:
+   *
+   * Users provide three functions:
    *
    *  - `createCombiner`, which turns a V into a C (e.g., creates a one-element list)
    *  - `mergeValue`, to merge a V into a C (e.g., adds it to the end of a list)
@@ -66,6 +65,9 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    *
    * In addition, users can control the partitioning of the output RDD, and whether to perform
    * map-side aggregation (if a mapper can produce multiple items with the same key).
+   *
+   * @note V and C can be different -- for example, one might group an RDD of type
+   * (Int, Int) into an RDD of type (Int, Seq[Int]).
    */
   @Experimental
   def combineByKeyWithClassTag[C](
@@ -106,7 +108,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * functions. This method is here for backward compatibility. It does not provide combiner
    * classtag information to the shuffle.
    *
-   * @see [[combineByKeyWithClassTag]]
+   * @see `combineByKeyWithClassTag`
    */
   def combineByKey[C](
       createCombiner: V => C,
@@ -124,7 +126,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * This method is here for backward compatibility. It does not provide combiner
    * classtag information to the shuffle.
    *
-   * @see [[combineByKeyWithClassTag]]
+   * @see `combineByKeyWithClassTag`
    */
   def combineByKey[C](
       createCombiner: V => C,
@@ -361,7 +363,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
   /**
    * Count the number of elements for each key, collecting the results to a local Map.
    *
-   * Note that this method should only be used if the resulting map is expected to be small, as
+   * @note This method should only be used if the resulting map is expected to be small, as
    * the whole thing is loaded into the driver's memory.
    * To handle very large results, consider using rdd.mapValues(_ => 1L).reduceByKey(_ + _), which
    * returns an RDD[T, Long] instead of a map.
@@ -396,9 +398,9 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * Algorithmic Engineering of a State of The Art Cardinality Estimation Algorithm", available
    * <a href="http://dx.doi.org/10.1145/2452376.2452456">here</a>.
    *
-   * The relative accuracy is approximately `1.054 / sqrt(2^p)`. Setting a nonzero `sp > p`
-   * would trigger sparse representation of registers, which may reduce the memory consumption
-   * and increase accuracy when the cardinality is small.
+   * The relative accuracy is approximately `1.054 / sqrt(2^p)`. Setting a nonzero (`sp` is
+   * greater than `p`) would trigger sparse representation of registers, which may reduce the
+   * memory consumption and increase accuracy when the cardinality is small.
    *
    * @param p The precision value for the normal set.
    *          `p` must be a value between 4 and `sp` if `sp` is not zero (32 max).
@@ -488,12 +490,12 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * The ordering of elements within each group is not guaranteed, and may even differ
    * each time the resulting RDD is evaluated.
    *
-   * Note: This operation may be very expensive. If you are grouping in order to perform an
-   * aggregation (such as a sum or average) over each key, using [[PairRDDFunctions.aggregateByKey]]
-   * or [[PairRDDFunctions.reduceByKey]] will provide much better performance.
+   * @note This operation may be very expensive. If you are grouping in order to perform an
+   * aggregation (such as a sum or average) over each key, using `PairRDDFunctions.aggregateByKey`
+   * or `PairRDDFunctions.reduceByKey` will provide much better performance.
    *
-   * Note: As currently implemented, groupByKey must be able to hold all the key-value pairs for any
-   * key in memory. If a key has too many values, it can result in an [[OutOfMemoryError]].
+   * @note As currently implemented, groupByKey must be able to hold all the key-value pairs for any
+   * key in memory. If a key has too many values, it can result in an `OutOfMemoryError`.
    */
   def groupByKey(partitioner: Partitioner): RDD[(K, Iterable[V])] = self.withScope {
     // groupByKey shouldn't use map side combine because map side combine does not
@@ -512,12 +514,12 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * resulting RDD with into `numPartitions` partitions. The ordering of elements within
    * each group is not guaranteed, and may even differ each time the resulting RDD is evaluated.
    *
-   * Note: This operation may be very expensive. If you are grouping in order to perform an
-   * aggregation (such as a sum or average) over each key, using [[PairRDDFunctions.aggregateByKey]]
-   * or [[PairRDDFunctions.reduceByKey]] will provide much better performance.
+   * @note This operation may be very expensive. If you are grouping in order to perform an
+   * aggregation (such as a sum or average) over each key, using `PairRDDFunctions.aggregateByKey`
+   * or `PairRDDFunctions.reduceByKey` will provide much better performance.
    *
-   * Note: As currently implemented, groupByKey must be able to hold all the key-value pairs for any
-   * key in memory. If a key has too many values, it can result in an [[OutOfMemoryError]].
+   * @note As currently implemented, groupByKey must be able to hold all the key-value pairs for any
+   * key in memory. If a key has too many values, it can result in an `OutOfMemoryError`.
    */
   def groupByKey(numPartitions: Int): RDD[(K, Iterable[V])] = self.withScope {
     groupByKey(new HashPartitioner(numPartitions))
@@ -605,7 +607,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * existing partitioner/parallelism level. This method is here for backward compatibility. It
    * does not provide combiner classtag information to the shuffle.
    *
-   * @see [[combineByKeyWithClassTag]]
+   * @see `combineByKeyWithClassTag`
    */
   def combineByKey[C](
       createCombiner: V => C,
@@ -633,9 +635,9 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * within each group is not guaranteed, and may even differ each time the resulting RDD is
    * evaluated.
    *
-   * Note: This operation may be very expensive. If you are grouping in order to perform an
-   * aggregation (such as a sum or average) over each key, using [[PairRDDFunctions.aggregateByKey]]
-   * or [[PairRDDFunctions.reduceByKey]] will provide much better performance.
+   * @note This operation may be very expensive. If you are grouping in order to perform an
+   * aggregation (such as a sum or average) over each key, using `PairRDDFunctions.aggregateByKey`
+   * or `PairRDDFunctions.reduceByKey` will provide much better performance.
    */
   def groupByKey(): RDD[(K, Iterable[V])] = self.withScope {
     groupByKey(defaultPartitioner(self))
@@ -905,20 +907,24 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * Return an RDD with the pairs from `this` whose keys are not in `other`.
    *
    * Uses `this` partitioner/partition size, because even if `other` is huge, the resulting
-   * RDD will be <= us.
+   * RDD will be less than or equal to us.
    */
   def subtractByKey[W: ClassTag](other: RDD[(K, W)]): RDD[(K, V)] = self.withScope {
     subtractByKey(other, self.partitioner.getOrElse(new HashPartitioner(self.partitions.length)))
   }
 
-  /** Return an RDD with the pairs from `this` whose keys are not in `other`. */
+  /**
+   * Return an RDD with the pairs from `this` whose keys are not in `other`.
+   */
   def subtractByKey[W: ClassTag](
       other: RDD[(K, W)],
       numPartitions: Int): RDD[(K, V)] = self.withScope {
     subtractByKey(other, new HashPartitioner(numPartitions))
   }
 
-  /** Return an RDD with the pairs from `this` whose keys are not in `other`. */
+  /**
+   * Return an RDD with the pairs from `this` whose keys are not in `other`.
+   */
   def subtractByKey[W: ClassTag](other: RDD[(K, W)], p: Partitioner): RDD[(K, V)] = self.withScope {
     new SubtractedRDD[K, V, W](self, other, p)
   }
@@ -992,7 +998,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
     job.setOutputValueClass(valueClass)
     job.setOutputFormatClass(outputFormatClass)
     val jobConfiguration = job.getConfiguration
-    jobConfiguration.set("mapred.output.dir", path)
+    jobConfiguration.set("mapreduce.output.fileoutputformat.outputdir", path)
     saveAsNewAPIHadoopDataset(jobConfiguration)
   }
 
@@ -1014,7 +1020,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * Output the RDD to any Hadoop-supported file system, using a Hadoop `OutputFormat` class
    * supporting the key and value types K and V in this RDD.
    *
-   * Note that, we should make sure our tasks are idempotent when speculation is enabled, i.e. do
+   * @note We should make sure our tasks are idempotent when speculation is enabled, i.e. do
    * not use output committer that writes data directly.
    * There is an example in https://issues.apache.org/jira/browse/SPARK-10063 to show the bad
    * result of using direct output committer with speculation enabled.
@@ -1033,10 +1039,11 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
     conf.setOutputFormat(outputFormatClass)
     for (c <- codec) {
       hadoopConf.setCompressMapOutput(true)
-      hadoopConf.set("mapred.output.compress", "true")
+      hadoopConf.set("mapreduce.output.fileoutputformat.compress", "true")
       hadoopConf.setMapOutputCompressorClass(c)
-      hadoopConf.set("mapred.output.compression.codec", c.getCanonicalName)
-      hadoopConf.set("mapred.output.compression.type", CompressionType.BLOCK.toString)
+      hadoopConf.set("mapreduce.output.fileoutputformat.compress.codec", c.getCanonicalName)
+      hadoopConf.set("mapreduce.output.fileoutputformat.compress.type",
+        CompressionType.BLOCK.toString)
     }
 
     // Use configured output committer if already set
@@ -1068,7 +1075,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * output paths required (e.g. a table name to write to) in the same way as it would be
    * configured for a Hadoop MapReduce job.
    *
-   * Note that, we should make sure our tasks are idempotent when speculation is enabled, i.e. do
+   * @note We should make sure our tasks are idempotent when speculation is enabled, i.e. do
    * not use output committer that writes data directly.
    * There is an example in https://issues.apache.org/jira/browse/SPARK-10063 to show the bad
    * result of using direct output committer with speculation enabled.
@@ -1119,8 +1126,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
       // around by taking a mod. We expect that no task will be attempted 2 billion times.
       val taskAttemptId = (context.taskAttemptId % Int.MaxValue).toInt
 
-      val outputMetricsAndBytesWrittenCallback: Option[(OutputMetrics, () => Long)] =
-        SparkHadoopWriterUtils.initHadoopOutputMetrics(context)
+      val (outputMetrics, callback) = SparkHadoopWriterUtils.initHadoopOutputMetrics(context)
 
       writer.setup(context.stageId, context.partitionId, taskAttemptId)
       writer.open()
@@ -1132,16 +1138,13 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
           writer.write(record._1.asInstanceOf[AnyRef], record._2.asInstanceOf[AnyRef])
 
           // Update bytes written metric every few records
-          SparkHadoopWriterUtils.maybeUpdateOutputMetrics(
-            outputMetricsAndBytesWrittenCallback, recordsWritten)
+          SparkHadoopWriterUtils.maybeUpdateOutputMetrics(outputMetrics, callback, recordsWritten)
           recordsWritten += 1
         }
       }(finallyBlock = writer.close())
       writer.commit()
-      outputMetricsAndBytesWrittenCallback.foreach { case (om, callback) =>
-        om.setBytesWritten(callback())
-        om.setRecordsWritten(recordsWritten)
-      }
+      outputMetrics.setBytesWritten(callback())
+      outputMetrics.setRecordsWritten(recordsWritten)
     }
 
     self.context.runJob(self, writeToFile)
